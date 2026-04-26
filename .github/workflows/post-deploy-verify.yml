@@ -1,0 +1,56 @@
+name: Post-deploy verify
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: HTTPS URL to verify
+        required: true
+        type: string
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser smoke test against deployment
+        run: PLAYWRIGHT_BASE_URL="${{ inputs.target_url }}" npm run test:e2e:smoke
+
+      - name: Verify root security headers
+        run: |
+          headers="$(curl -fsSI "${{ inputs.target_url }}")"
+          printf '%s\n' "$headers" | grep -F "cache-control: public, max-age=0, must-revalidate"
+          printf '%s\n' "$headers" | grep -F "content-security-policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+          printf '%s\n' "$headers" | grep -F "x-content-type-options: nosniff"
+          printf '%s\n' "$headers" | grep -F "referrer-policy: strict-origin-when-cross-origin"
+          printf '%s\n' "$headers" | grep -F "permissions-policy: camera=(), geolocation=(), microphone=()"
+          printf '%s\n' "$headers" | grep -F "x-frame-options: DENY"
+
+      - name: Verify asset cache policy
+        run: |
+          html_file="$(mktemp)"
+          curl -fsSL "${{ inputs.target_url }}" -o "$html_file"
+          asset_path="$(grep -oE '/assets/[^"'"'" ]+\.js' "$html_file" | head -n 1)"
+          test -n "$asset_path"
+          asset_headers="$(curl -fsSI "${{ inputs.target_url }}${asset_path}")"
+          printf '%s\n' "$asset_headers" | grep -F "cache-control: public, max-age=31536000, immutable"
+          printf '%s\n' "$asset_headers" | grep -Ei "content-type: (application|text)/javascript"
+
+      - name: Verify favicon cache policy
+        run: |
+          favicon_headers="$(curl -fsSI "${{ inputs.target_url }}/favicon.svg")"
+          printf '%s\n' "$favicon_headers" | grep -F "cache-control: public, max-age=604800, stale-while-revalidate=86400"
