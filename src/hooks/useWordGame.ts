@@ -8,15 +8,17 @@ import { evaluateGuess } from '../game/evaluateGuess';
 import { validateHardModeGuess } from '../game/hardMode';
 import { buildKeyboardState } from '../game/keyboard';
 import { buildShareText } from '../game/share';
-import { getDailyPuzzle } from '../game/puzzle';
+import { getDailyPuzzle, getMillisecondsUntilNextPuzzle } from '../game/puzzle';
 import { persistState, readStoredState } from '../game/storage';
 import { completePuzzleStats } from '../game/stats';
-import type { DialogType, EvaluatedGuess, GameStatus, SettingsState } from '../game/types';
+import type { DialogType, EvaluatedGuess, GameSnapshot, GameStatus, SettingsState } from '../game/types';
 
 interface ToastState {
   id: number;
   message: string;
 }
+
+type CompletedGameStatus = Exclude<GameStatus, 'in_progress'>;
 
 interface WordGameModel {
   puzzle: ReturnType<typeof getDailyPuzzle>;
@@ -60,9 +62,21 @@ function useTimedMessage() {
   return { toast, showToast };
 }
 
+function getCompletedStatus(evaluation: EvaluatedGuess, guessCount: number): CompletedGameStatus | null {
+  if (evaluation.statuses.every((statusItem) => statusItem === 'correct')) {
+    return 'won';
+  }
+
+  if (guessCount === MAX_GUESSES) {
+    return 'lost';
+  }
+
+  return null;
+}
+
 export function useWordGame(): WordGameModel {
   const initialSnapshot = useMemo(() => readStoredState(), []);
-  const [puzzle] = useState(initialSnapshot.puzzle);
+  const [puzzle, setPuzzle] = useState(initialSnapshot.puzzle);
   const [guesses, setGuesses] = useState(initialSnapshot.guesses);
   const [currentGuess, setCurrentGuess] = useState(initialSnapshot.currentGuess);
   const [status, setStatus] = useState<GameStatus>(initialSnapshot.status);
@@ -71,8 +85,33 @@ export function useWordGame(): WordGameModel {
   const [dialog, setDialog] = useState<DialogType>(null);
   const [shakingRow, setShakingRow] = useState<number | null>(null);
   const [revealingRow, setRevealingRow] = useState<number | null>(null);
-  const trackedStartRef = useRef(false);
+  const trackedPuzzleIdRef = useRef<string | null>(null);
+  const revealTimeoutRef = useRef<number | null>(null);
   const { toast, showToast } = useTimedMessage();
+
+  const applySnapshot = useCallback((snapshot: GameSnapshot) => {
+    if (revealTimeoutRef.current !== null) {
+      window.clearTimeout(revealTimeoutRef.current);
+      revealTimeoutRef.current = null;
+    }
+
+    setPuzzle(snapshot.puzzle);
+    setGuesses(snapshot.guesses);
+    setCurrentGuess(snapshot.currentGuess);
+    setStatus(snapshot.status);
+    setSettings(snapshot.settings);
+    setStats(snapshot.stats);
+    setDialog(null);
+    setShakingRow(null);
+    setRevealingRow(null);
+  }, []);
+
+  const syncPuzzleIfNeeded = useCallback(() => {
+    const nextSnapshot = readStoredState();
+    if (nextSnapshot.puzzle.id !== puzzle.id) {
+      applySnapshot(nextSnapshot);
+    }
+  }, [applySnapshot, puzzle.id]);
 
   const evaluations = useMemo(
     () => guesses.map((guess) => evaluateGuess(guess, puzzle.answer)),
@@ -111,13 +150,37 @@ export function useWordGame(): WordGameModel {
   }, [settings.darkMode, settings.highContrast, settings.reduceMotion]);
 
   useEffect(() => {
-    if (trackedStartRef.current) {
+    if (trackedPuzzleIdRef.current === puzzle.id) {
       return;
     }
 
     analytics.track('game_started', { puzzleNumber: puzzle.number });
-    trackedStartRef.current = true;
-  }, [puzzle.number]);
+    trackedPuzzleIdRef.current = puzzle.id;
+  }, [puzzle.id, puzzle.number]);
+
+  useEffect(() => {
+    const refreshAtMidnight = window.setTimeout(syncPuzzleIfNeeded, getMillisecondsUntilNextPuzzle());
+    const handleVisibilityRefresh = () => {
+      if (document.visibilityState === 'visible') {
+        syncPuzzleIfNeeded();
+      }
+    };
+
+    window.addEventListener('focus', syncPuzzleIfNeeded);
+    document.addEventListener('visibilitychange', handleVisibilityRefresh);
+
+    return () => {
+      window.clearTimeout(refreshAtMidnight);
+      window.removeEventListener('focus', syncPuzzleIfNeeded);
+      document.removeEventListener('visibilitychange', handleVisibilityRefresh);
+    };
+  }, [syncPuzzleIfNeeded]);
+
+  useEffect(() => () => {
+    if (revealTimeoutRef.current !== null) {
+      window.clearTimeout(revealTimeoutRef.current);
+    }
+  }, []);
 
   const blockInput = status !== 'in_progress' || revealingRow !== null;
 
@@ -150,21 +213,28 @@ export function useWordGame(): WordGameModel {
   }, [blockInput, currentGuess.length]);
 
   const completeRound = useCallback(
-    (nextGuesses: string[], outcome: GameStatus) => {
+    (outcome: CompletedGameStatus, nextGuesses: string[]) => {
       const nextStats = completePuzzleStats(stats, puzzle.id, outcome, nextGuesses.length);
       setStats(nextStats);
       setStatus(outcome);
+    },
+    [puzzle.id, stats],
+  );
 
+  const finalizeCompletedRound = useCallback(
+    (outcome: CompletedGameStatus | null, nextGuesses: string[]) => {
       if (outcome === 'won') {
         analytics.track('game_won', { attempts: nextGuesses.length, puzzleNumber: puzzle.number });
         showToast(`Solved in ${nextGuesses.length}`);
         return;
       }
 
-      analytics.track('game_lost', { puzzleNumber: puzzle.number });
-      showToast(`Answer: ${puzzle.answer}`);
+      if (outcome === 'lost') {
+        analytics.track('game_lost', { puzzleNumber: puzzle.number });
+        showToast(`Answer: ${puzzle.answer}`);
+      }
     },
-    [puzzle.answer, puzzle.id, puzzle.number, showToast, stats],
+    [puzzle.answer, puzzle.number, showToast],
   );
 
   const submitGuess = useCallback(() => {
@@ -198,22 +268,20 @@ export function useWordGame(): WordGameModel {
     analytics.track('guess_submitted', { turn: rowIndex + 1, puzzleNumber: puzzle.number });
     const nextGuesses = [...guesses, normalizedGuess];
     const evaluation = evaluateGuess(normalizedGuess, puzzle.answer);
+    const outcome = getCompletedStatus(evaluation, nextGuesses.length);
 
     setGuesses(nextGuesses);
     setCurrentGuess('');
+
+    if (outcome !== null) {
+      completeRound(outcome, nextGuesses);
+    }
+
     setRevealingRow(rowIndex);
 
     const finalize = () => {
       setRevealingRow(null);
-
-      if (evaluation.statuses.every((statusItem) => statusItem === 'correct')) {
-        completeRound(nextGuesses, 'won');
-        return;
-      }
-
-      if (nextGuesses.length === MAX_GUESSES) {
-        completeRound(nextGuesses, 'lost');
-      }
+      finalizeCompletedRound(outcome, nextGuesses);
     };
 
     if (settings.reduceMotion) {
@@ -221,12 +289,16 @@ export function useWordGame(): WordGameModel {
       return;
     }
 
-    window.setTimeout(finalize, REVEAL_MS * WORD_LENGTH);
+    revealTimeoutRef.current = window.setTimeout(() => {
+      revealTimeoutRef.current = null;
+      finalize();
+    }, REVEAL_MS * WORD_LENGTH);
   }, [
     blockInput,
     completeRound,
     currentGuess,
     evaluations,
+    finalizeCompletedRound,
     guesses,
     settings.hardMode,
     settings.reduceMotion,
