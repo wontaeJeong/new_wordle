@@ -4,10 +4,11 @@ interface EndgamePanelProps {
   status: GameStatus;
   answer: string;
   onShare: () => void;
+  isRevealing: boolean;
 }
 
-export function EndgamePanel({ status, answer, onShare }: EndgamePanelProps) {
-  if (status === 'in_progress') {
+export function EndgamePanel({ status, answer, onShare, isRevealing }: EndgamePanelProps) {
+  if (status === 'in_progress' || isRevealing) {
     return null;
   }
 

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import { appConfig } from './config/appConfig';
 import { ErrorBoundary } from './ErrorBoundary';
 import { Header } from './components/Header';
@@ -14,10 +14,49 @@ import './App.css';
 
 function AppShell() {
   const game = useWordGame();
+  const {
+    addLetter,
+    closeDialog,
+    currentGuess,
+    dialog,
+    evaluations,
+    guesses,
+    keyboardState,
+    liveSummary,
+    openDialog,
+    puzzle,
+    removeLetter,
+    revealingRow,
+    settings,
+    shakingRow,
+    shareResults,
+    stats,
+    status,
+    submitGuess,
+    toast,
+    updateSetting,
+  } = game;
+
+  const isDialogOpen = dialog !== null;
+  const isKeyboardDisabled = status !== 'in_progress' || revealingRow !== null || isDialogOpen;
+
+  const handleKeyboardPress = useCallback((key: string) => {
+    if (key === 'ENTER') {
+      submitGuess();
+      return;
+    }
+
+    if (key === 'BACKSPACE') {
+      removeLetter();
+      return;
+    }
+
+    addLetter(key);
+  }, [addLetter, removeLetter, submitGuess]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (game.dialog !== null) {
+      if (isDialogOpen) {
         return;
       }
 
@@ -32,85 +71,76 @@ function AppShell() {
 
       if (/^[a-zA-Z]$/.test(event.key)) {
         event.preventDefault();
-        game.addLetter(event.key.toUpperCase());
+        addLetter(event.key.toUpperCase());
         return;
       }
 
       if (event.key === 'Backspace') {
         event.preventDefault();
-        game.removeLetter();
+        removeLetter();
         return;
       }
 
       if (event.key === 'Enter') {
         event.preventDefault();
-        game.submitGuess();
+        submitGuess();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [game]);
-
-  const handleKeyboardPress = (key: string) => {
-    if (key === 'ENTER') {
-      game.submitGuess();
-      return;
-    }
-
-    if (key === 'BACKSPACE') {
-      game.removeLetter();
-      return;
-    }
-
-    game.addLetter(key);
-  };
+  }, [addLetter, isDialogOpen, removeLetter, submitGuess]);
 
   const versionLabel = `${appConfig.version} (${appConfig.buildId})`;
 
   return (
     <main className="app-shell">
-      <Toast message={game.toast?.message ?? null} />
+      <Toast message={toast?.message ?? null} />
       <div className="game-card">
         <Header
           title={appConfig.appTitle}
-          onOpenHelp={() => game.openDialog('help')}
-          onOpenStats={() => game.openDialog('stats')}
-          onOpenSettings={() => game.openDialog('settings')}
+          onOpenHelp={() => openDialog('help')}
+          onOpenStats={() => openDialog('stats')}
+          onOpenSettings={() => openDialog('settings')}
         />
         <Board
-          guesses={game.guesses}
-          currentGuess={game.currentGuess}
-          evaluations={game.evaluations}
-          revealingRow={game.revealingRow}
-          shakingRow={game.shakingRow}
-          status={game.status}
-          reduceMotion={game.settings.reduceMotion}
-          liveSummary={game.liveSummary}
+          guesses={guesses}
+          currentGuess={currentGuess}
+          evaluations={evaluations}
+          revealingRow={revealingRow}
+          shakingRow={shakingRow}
+          status={status}
+          reduceMotion={settings.reduceMotion}
+          liveSummary={liveSummary}
         />
         <Keyboard
-          letterStates={game.keyboardState}
+          letterStates={keyboardState}
           onKeyPress={handleKeyboardPress}
-          disabled={game.status !== 'in_progress' || game.revealingRow !== null || game.dialog !== null}
+          disabled={isKeyboardDisabled}
         />
-        <EndgamePanel status={game.status} answer={game.puzzle.answer} onShare={() => void game.shareResults()} />
+        <EndgamePanel
+          status={status}
+          answer={puzzle.answer}
+          onShare={() => void shareResults()}
+          isRevealing={revealingRow !== null}
+        />
       </div>
 
-      {game.dialog === 'help' ? <HelpDialog onClose={game.closeDialog} /> : null}
-      {game.dialog === 'settings' ? (
+      {dialog === 'help' ? <HelpDialog onClose={closeDialog} /> : null}
+      {dialog === 'settings' ? (
         <SettingsDialog
-          settings={game.settings}
-          onChange={game.updateSetting}
-          onClose={game.closeDialog}
+          settings={settings}
+          onChange={updateSetting}
+          onClose={closeDialog}
           versionLabel={versionLabel}
         />
       ) : null}
-      {game.dialog === 'stats' ? (
+      {dialog === 'stats' ? (
         <StatsDialog
-          stats={game.stats}
-          canShare={game.status !== 'in_progress'}
-          onShare={() => void game.shareResults()}
-          onClose={game.closeDialog}
+          stats={stats}
+          canShare={status !== 'in_progress' && revealingRow === null}
+          onShare={() => void shareResults()}
+          onClose={closeDialog}
         />
       ) : null}
     </main>

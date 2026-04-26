@@ -3,10 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../App';
 import { ALLOWED_GUESSES } from '../data/allowedGuesses';
 import { ANSWER_SET_VERSION } from '../data/answers';
-import { STORAGE_KEY, STORAGE_VERSION } from '../game/constants';
+import { REVEAL_MS, STORAGE_KEY, STORAGE_VERSION, WORD_LENGTH } from '../game/constants';
 import { evaluateGuess } from '../game/evaluateGuess';
 import { getDailyPuzzle } from '../game/puzzle';
 import { validateHardModeGuess } from '../game/hardMode';
+
+const REVEAL_DURATION_MS = REVEAL_MS * WORD_LENGTH;
 
 function pressKey(key: string) {
   fireEvent.keyDown(window, { key });
@@ -86,7 +88,7 @@ describe('App integration', () => {
     typeWord('CIGAR');
     pressKey('Enter');
     act(() => {
-      vi.runAllTimers();
+      vi.advanceTimersByTime(REVEAL_DURATION_MS);
     });
 
     const firstRowTiles = container.querySelectorAll('.board-row')[0]?.querySelectorAll('.tile') ?? [];
@@ -110,7 +112,7 @@ describe('App integration', () => {
     typeWord(puzzle.answer);
     pressKey('Enter');
     act(() => {
-      vi.runAllTimers();
+      vi.advanceTimersByTime(REVEAL_DURATION_MS);
     });
 
     expect(screen.getByRole('heading', { name: 'Puzzle solved' })).toBeInTheDocument();
@@ -119,6 +121,108 @@ describe('App integration', () => {
       await Promise.resolve();
     });
     expect(navigator.clipboard.writeText).toHaveBeenCalled();
+  });
+
+  it('hides stats sharing until the reveal animation finishes', async () => {
+    const puzzle = getDailyPuzzle(new Date(2026, 3, 20, 12, 0));
+    render(<App />);
+
+    typeWord(puzzle.answer);
+    pressKey('Enter');
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Open statistics dialog' }));
+    });
+
+    const statsDialog = screen.getByRole('dialog', { name: 'Statistics' });
+    expect(within(statsDialog).queryByRole('button', { name: 'Share result' })).not.toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(REVEAL_DURATION_MS);
+    });
+
+    expect(within(statsDialog).getByRole('button', { name: 'Share result' })).toBeInTheDocument();
+  });
+
+  it('restores a completed game correctly when reloading during reveal', () => {
+    const puzzle = getDailyPuzzle(new Date(2026, 3, 20, 12, 0));
+    const { unmount } = render(<App />);
+
+    typeWord(puzzle.answer);
+    pressKey('Enter');
+
+    expect(screen.queryByRole('heading', { name: 'Puzzle solved' })).not.toBeInTheDocument();
+    expect(window.localStorage.getItem(STORAGE_KEY)).toContain('"status":"won"');
+
+    unmount();
+    render(<App />);
+
+    expect(screen.getByRole('heading', { name: 'Puzzle solved' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Share result' })).toBeInTheDocument();
+  });
+
+  it('rolls over to a fresh daily puzzle when the date changes in the same session', () => {
+    vi.setSystemTime(new Date(2026, 3, 20, 23, 59, 58, 500));
+    const nextPuzzle = getDailyPuzzle(new Date(2026, 3, 21, 0, 0, 0, 0));
+
+    render(<App />);
+    typeWord('CI');
+    expect(screen.getByText('Turn 1 of 6. 2 of 5 letters entered.')).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(1500);
+    });
+
+    expect(screen.getByText('Turn 1 of 6. 0 of 5 letters entered.')).toBeInTheDocument();
+    expect(window.localStorage.getItem(STORAGE_KEY)).toContain(`"puzzleId":"${nextPuzzle.id}"`);
+    expect(window.localStorage.getItem(STORAGE_KEY)).toContain('"currentGuess":""');
+    expect(window.localStorage.getItem(STORAGE_KEY)).toContain('"status":"in_progress"');
+  });
+
+  it('rolls over to a fresh daily puzzle when the app regains focus on a new day', () => {
+    vi.setSystemTime(new Date(2026, 3, 20, 12, 0, 0, 0));
+    const nextPuzzle = getDailyPuzzle(new Date(2026, 3, 21, 12, 0, 0, 0));
+
+    render(<App />);
+    typeWord('CI');
+    expect(screen.getByText('Turn 1 of 6. 2 of 5 letters entered.')).toBeInTheDocument();
+
+    act(() => {
+      vi.setSystemTime(new Date(2026, 3, 21, 12, 0, 0, 0));
+      window.dispatchEvent(new Event('focus'));
+    });
+
+    expect(screen.getByText('Turn 1 of 6. 0 of 5 letters entered.')).toBeInTheDocument();
+    expect(window.localStorage.getItem(STORAGE_KEY)).toContain(`"puzzleId":"${nextPuzzle.id}"`);
+    expect(window.localStorage.getItem(STORAGE_KEY)).toContain('"currentGuess":""');
+  });
+
+  it('rolls over to a fresh daily puzzle when the tab becomes visible on a new day', () => {
+    vi.setSystemTime(new Date(2026, 3, 20, 12, 0, 0, 0));
+    const nextPuzzle = getDailyPuzzle(new Date(2026, 3, 21, 12, 0, 0, 0));
+
+    render(<App />);
+    typeWord('CI');
+    expect(screen.getByText('Turn 1 of 6. 2 of 5 letters entered.')).toBeInTheDocument();
+
+    const originalVisibilityState = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'visible',
+    });
+
+    act(() => {
+      vi.setSystemTime(new Date(2026, 3, 21, 12, 0, 0, 0));
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    expect(screen.getByText('Turn 1 of 6. 0 of 5 letters entered.')).toBeInTheDocument();
+    expect(window.localStorage.getItem(STORAGE_KEY)).toContain(`"puzzleId":"${nextPuzzle.id}"`);
+    expect(window.localStorage.getItem(STORAGE_KEY)).toContain('"currentGuess":""');
+
+    if (originalVisibilityState) {
+      Object.defineProperty(document, 'visibilityState', originalVisibilityState);
+    }
   });
 
   it('completes a lose flow after six wrong guesses', () => {
@@ -130,7 +234,7 @@ describe('App integration', () => {
       typeWord(wrongGuess);
       pressKey('Enter');
       act(() => {
-        vi.runAllTimers();
+        vi.advanceTimersByTime(REVEAL_DURATION_MS);
       });
     }
 
@@ -204,7 +308,7 @@ describe('App integration', () => {
     typeWord(scenario.seedGuess);
     pressKey('Enter');
     act(() => {
-      vi.runAllTimers();
+      vi.advanceTimersByTime(REVEAL_DURATION_MS);
     });
 
     typeWord(scenario.violatingGuess);
@@ -230,7 +334,7 @@ describe('App integration', () => {
     typeWord(puzzle.answer);
     pressKey('Enter');
     act(() => {
-      vi.runAllTimers();
+      vi.advanceTimersByTime(REVEAL_DURATION_MS);
     });
 
     await act(async () => {
