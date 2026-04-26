@@ -8,7 +8,11 @@
    - `npm run typecheck`
    - `npm run test:run`
    - `npm run build`
+   - `npm run check:bundle`
+   - `npm run test:e2e:smoke`
 3. Deploy the generated `dist/` directory to the static host of choice
+
+GitHub Pages can be deployed directly through the `Deploy GitHub Pages` workflow, which computes the correct Vite base path automatically for project pages.
 
 ## Verify deployment
 
@@ -20,6 +24,8 @@ After deployment, verify:
 4. reload restores the in-progress board
 5. dark mode and high-contrast mode persist after refresh
 6. share copies a spoiler-free grid after a completed game
+
+You can automate the live-site browser and header checks with the GitHub Actions workflow `Post-deploy verify` by passing the deployed HTTPS URL.
 
 ## Rollback
 

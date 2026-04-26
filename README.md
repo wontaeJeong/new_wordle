@@ -28,6 +28,10 @@ Open the local Vite URL shown in the terminal.
 - `npm run preview` - serve the built app locally
 - `npm run test` - run Vitest in watch mode
 - `npm run test:run` - run the full test suite once
+- `npm run test:e2e` - run the Playwright browser suite against a local preview server
+- `npm run test:e2e:smoke` - run the Chromium smoke spec only
+- `npm run test:e2e:headed` - run the Chromium smoke spec with a visible browser locally
+- `npm run check:bundle` - enforce the production asset-size budget after a build
 - `npm run lint` - run ESLint
 - `npm run typecheck` - run TypeScript type checking
 
@@ -94,6 +98,7 @@ Runtime/build configuration is centralized in `src/config/appConfig.ts`. Feature
 Environment variables:
 
 - `VITE_APP_TITLE` - UI title text
+- `VITE_BASE_PATH` - optional Vite base path for subpath deployments such as GitHub Pages
 - `VITE_PUZZLE_EPOCH` - optional `YYYY-MM-DD` daily epoch override
 - `VITE_ENABLE_ANALYTICS` - enables the analytics adapter interface; default `false`
 - `VITE_ENABLE_ERROR_REPORTING` - enables the error-reporting adapter interface; default `false`
@@ -110,9 +115,14 @@ The project includes:
 
 - unit tests for guess evaluation, duplicate logic, keyboard merging, hard mode, puzzle mapping, storage, and share text
 - integration tests for typing, deleting, valid/invalid submission, hard mode enforcement, win flow, lose flow, restore flow, settings persistence, share, clipboard failure handling, and dialog focus behavior
+- Playwright browser smoke coverage for the built app, physical and on-screen keyboard play, dialog behavior, settings persistence, reveal gating, and reload restore
 - linting, typechecking, and production build verification
 
-CI runs install, lint, typecheck, tests, and build on every push and pull request.
+CI runs install, lint, typecheck, tests, build, a bundle-budget check, and a Chromium Playwright smoke pass on every push and pull request.
+
+A separate manual GitHub Actions workflow (`Post-deploy verify`) can run the same browser smoke suite plus header/cache checks against a live deployment URL.
+
+GitHub Pages deployment is available through `.github/workflows/deploy-pages.yml`; it computes a repository-aware Vite base path automatically and deploys the `dist/` artifact to the Pages environment.
 
 ## Deployment guidance
 
@@ -141,6 +151,8 @@ Recommended static-host headers are included in the hosting examples:
 - `Permissions-Policy`
 - `X-Frame-Options: DENY`
 
+The host examples also separate cache policy between HTML entry points and hashed static assets so rollbacks stay safe without sacrificing asset caching.
+
 The app avoids `dangerouslySetInnerHTML`, does not eval code, and does not store secrets client-side.
 
 ## Observability and resilience
@@ -149,6 +161,7 @@ The app avoids `dangerouslySetInnerHTML`, does not eval code, and does not store
 - `ErrorBoundary.tsx` prevents blank-screen failures
 - global error listeners capture uncaught errors and rejections
 - analytics and error reporting are behind thin adapters and remain non-blocking noop implementations unless enabled/configured
+- analytics and error reporting stay vendor-neutral and disabled by default; production verification focuses on their current contract rather than a specific SDK
 - clipboard sharing falls back safely when the Clipboard API is unavailable
 - localStorage write failures degrade safely without crashing the app
 
