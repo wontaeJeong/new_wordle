@@ -6,6 +6,10 @@ function toLocalMidnight(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
+function toLocalDayNumber(date: Date): number {
+  return Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / (24 * 60 * 60 * 1000));
+}
+
 export function parseLocalCalendarDate(value: string): Date {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!match) {
@@ -36,8 +40,7 @@ export function formatPuzzleId(date: Date): string {
 export function getPuzzleNumber(date: Date): number {
   const epoch = toLocalMidnight(parseLocalCalendarDate(appConfig.puzzleEpoch));
   const target = toLocalMidnight(date);
-  const millisecondsPerDay = 24 * 60 * 60 * 1000;
-  return Math.floor((target.getTime() - epoch.getTime()) / millisecondsPerDay);
+  return toLocalDayNumber(target) - toLocalDayNumber(epoch);
 }
 
 export function getDailyPuzzle(date: Date = new Date()): Puzzle {
@@ -49,4 +52,9 @@ export function getDailyPuzzle(date: Date = new Date()): Puzzle {
     index,
     answer: ANSWERS[index].toUpperCase(),
   };
+}
+
+export function getMillisecondsUntilNextPuzzle(date: Date = new Date()): number {
+  const nextLocalMidnight = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
+  return Math.max(0, nextLocalMidnight.getTime() - date.getTime());
 }
