@@ -25,7 +25,12 @@
     "native:sync:android": "VITE_BASE_PATH=/ npm run build && cap sync android",
     "native:sync:ios": "VITE_BASE_PATH=/ npm run build && cap sync ios",
     "native:build:android": "VITE_BASE_PATH=/ npm run build && cap sync android && cd android && ./gradlew assembleDebug",
-    "native:build:ios": "VITE_BASE_PATH=/ npm run build && cap sync ios && xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug -sdk iphonesimulator -derivedDataPath ios/App/build CODE_SIGNING_ALLOWED=NO build"
+    "native:build:ios": "VITE_BASE_PATH=/ npm run build && cap sync ios && xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug -sdk iphonesimulator -derivedDataPath ios/App/build CODE_SIGNING_ALLOWED=NO build",
+    "native:build:android:release": "VITE_BASE_PATH=/ npm run build && cap sync android && cd android && ./gradlew bundleRelease",
+    "native:build:android:release:apk": "VITE_BASE_PATH=/ npm run build && cap sync android && cd android && ./gradlew assembleRelease",
+    "native:archive:ios": ": \"${IOS_DEVELOPMENT_TEAM:?Set IOS_DEVELOPMENT_TEAM to your Apple Developer Team ID}\" && VITE_BASE_PATH=/ npm run build && cap sync ios && xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release -destination \"generic/platform=iOS\" -archivePath ios/App/build/App.xcarchive DEVELOPMENT_TEAM=\"$IOS_DEVELOPMENT_TEAM\" MARKETING_VERSION=\"${IOS_MARKETING_VERSION:-$npm_package_version}\" CURRENT_PROJECT_VERSION=\"${IOS_BUILD_NUMBER:-1}\" -allowProvisioningUpdates archive",
+    "native:export:ios": "xcodebuild -exportArchive -archivePath ios/App/build/App.xcarchive -exportPath ios/App/output -exportOptionsPlist \"${IOS_EXPORT_OPTIONS_PLIST:-ios/ExportOptions.plist}\" -allowProvisioningUpdates",
+    "native:build:ios:release": "npm run native:archive:ios && npm run native:export:ios"
   },
   "dependencies": {
     "@capacitor/android": "^8.3.1",
