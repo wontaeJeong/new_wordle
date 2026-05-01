@@ -76,6 +76,6 @@ Rollback is static-host specific, but the safe default is:
 
 ## Operational notes
 
-- analytics is off by default and non-blocking
-- error reporting is interface-based and noop until a real provider is wired in
-- the app is intentionally backend-free; daily puzzle correctness depends on local calendar day and build-time configuration only
+- analytics is off by default and non-blocking; when enabled it sends to the configured HTTP endpoint
+- error reporting is off by default and non-blocking; when enabled it sends to the configured HTTP endpoint
+- the core game is intentionally backend-free; daily puzzle correctness depends on local calendar day and build-time configuration only

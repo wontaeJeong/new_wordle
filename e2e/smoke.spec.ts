@@ -67,7 +67,7 @@ test.describe('Daily Lexicon smoke', () => {
       });
     });
 
-    await page.goto('/');
+    await page.goto('./');
 
     await page.evaluate((completedStatus) => {
       const raw = window.localStorage.getItem('daily-lexicon-state');
@@ -138,7 +138,7 @@ test.describe('Daily Lexicon smoke', () => {
       }
     });
 
-    await page.goto('/');
+    await page.goto('./');
 
     const heading = page.getByRole('heading', { level: 1 });
     await expect(heading).toBeVisible();
@@ -147,12 +147,12 @@ test.describe('Daily Lexicon smoke', () => {
     await expect(page).toHaveTitle(headingText ?? '');
     await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#111827');
     await expect(page.locator('meta[name="color-scheme"]')).toHaveAttribute('content', 'light dark');
-    await expect(page.locator('link[rel="icon"][href="/favicon.svg"]')).toHaveCount(1);
+    await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', /\/favicon\.svg$/);
     expect(consoleErrors).toEqual([]);
   });
 
   test('supports help dialog and on-screen keyboard input', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('./');
 
     await page.getByRole('button', { name: 'Open help dialog' }).click();
     await expect(page.getByRole('dialog', { name: 'How to play' })).toBeVisible();
@@ -168,7 +168,7 @@ test.describe('Daily Lexicon smoke', () => {
   });
 
   test('restores partially typed physical keyboard input after reload', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('./');
 
     await page.evaluate(() => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'C', bubbles: true }));
@@ -186,7 +186,7 @@ test.describe('Daily Lexicon smoke', () => {
   });
 
   test('keeps stats sharing hidden during reveal and restores theme settings after reload', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('./');
 
     await page.getByRole('button', { name: 'Open settings dialog' }).click();
     await page.getByRole('checkbox', { name: 'Dark mode' }).check();
@@ -272,7 +272,7 @@ test.describe('Daily Lexicon smoke', () => {
   });
 
   test('supports high contrast and reduce motion settings persistence', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('./');
 
     await page.getByRole('button', { name: 'Open settings dialog' }).click();
     await page.getByRole('checkbox', { name: 'High contrast mode' }).check();
@@ -292,7 +292,7 @@ test.describe('Daily Lexicon smoke', () => {
     const puzzle = getDefaultPuzzle(new Date());
     const scenario = findHardModeScenario(puzzle.answer);
 
-    await page.goto('/');
+    await page.goto('./');
     await page.evaluate(({ seedGuess }) => {
       const raw = window.localStorage.getItem('daily-lexicon-state');
       if (!raw) {
@@ -398,11 +398,13 @@ test.describe('Daily Lexicon smoke', () => {
         },
       });
 
-      // @ts-expect-error browser test time shim
-      window.Date = MockDate;
+      Object.defineProperty(window, 'Date', {
+        configurable: true,
+        value: MockDate,
+      });
     });
 
-    await page.goto('/');
+    await page.goto('./');
     await page.locator('main').click();
     await page.keyboard.press('C');
     await page.keyboard.press('I');

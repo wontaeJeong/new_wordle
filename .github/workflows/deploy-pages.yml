@@ -28,7 +28,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Configure Pages
@@ -68,27 +68,3 @@ jobs:
 
       - name: Browser smoke test against deployed Pages URL
         run: PLAYWRIGHT_BASE_URL="${{ steps.deployment.outputs.page_url }}" npm run test:e2e:smoke
-
-      - name: Verify deployed root security headers
-        run: |
-          headers="$(curl -fsSI "${{ steps.deployment.outputs.page_url }}")"
-          printf '%s\n' "$headers" | grep -iF "cache-control: public, max-age=0, must-revalidate"
-          printf '%s\n' "$headers" | grep -iF "content-security-policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
-          printf '%s\n' "$headers" | grep -iF "x-content-type-options: nosniff"
-          printf '%s\n' "$headers" | grep -iF "referrer-policy: strict-origin-when-cross-origin"
-          printf '%s\n' "$headers" | grep -iF "permissions-policy: camera=(), geolocation=(), microphone=()"
-          printf '%s\n' "$headers" | grep -iF "x-frame-options: DENY"
-
-      - name: Verify deployed asset cache policy
-        run: |
-          html_file="$(mktemp)"
-          curl -fsSL "${{ steps.deployment.outputs.page_url }}" -o "$html_file"
-          asset_path="$(grep -oE '/assets/[^"'"'" ]+\.js' "$html_file" | head -n 1)"
-          test -n "$asset_path"
-          asset_headers="$(curl -fsSI "${{ steps.deployment.outputs.page_url }}${asset_path}")"
-          printf '%s\n' "$asset_headers" | grep -iF "cache-control: public, max-age=31536000, immutable"
-
-      - name: Verify deployed favicon cache policy
-        run: |
-          favicon_headers="$(curl -fsSI "${{ steps.deployment.outputs.page_url }}/favicon.svg")"
-          printf '%s\n' "$favicon_headers" | grep -iF "cache-control: public, max-age=604800, stale-while-revalidate=86400"

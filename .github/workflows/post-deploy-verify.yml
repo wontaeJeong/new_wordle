@@ -18,7 +18,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install
@@ -27,30 +27,40 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
 
+      - name: Normalize target URL
+        id: target
+        env:
+          TARGET_URL: ${{ inputs.target_url }}
+        run: |
+          normalized_url="$(node -e "const url = new URL(process.env.TARGET_URL); if (url.protocol !== 'https:') throw new Error('target_url must use HTTPS'); console.log(url.href.endsWith('/') ? url.href : url.href + '/')")"
+          echo "url=$normalized_url" >> "$GITHUB_OUTPUT"
+
       - name: Browser smoke test against deployment
-        run: PLAYWRIGHT_BASE_URL="${{ inputs.target_url }}" npm run test:e2e:smoke
+        run: PLAYWRIGHT_BASE_URL="${{ steps.target.outputs.url }}" npm run test:e2e:smoke
 
       - name: Verify root security headers
         run: |
-          headers="$(curl -fsSI "${{ inputs.target_url }}")"
-          printf '%s\n' "$headers" | grep -F "cache-control: public, max-age=0, must-revalidate"
-          printf '%s\n' "$headers" | grep -F "content-security-policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
-          printf '%s\n' "$headers" | grep -F "x-content-type-options: nosniff"
-          printf '%s\n' "$headers" | grep -F "referrer-policy: strict-origin-when-cross-origin"
-          printf '%s\n' "$headers" | grep -F "permissions-policy: camera=(), geolocation=(), microphone=()"
-          printf '%s\n' "$headers" | grep -F "x-frame-options: DENY"
+          headers="$(curl -fsSI "${{ steps.target.outputs.url }}")"
+          printf '%s\n' "$headers" | grep -iF "cache-control: public, max-age=0, must-revalidate"
+          printf '%s\n' "$headers" | grep -iF "content-security-policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' https:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+          printf '%s\n' "$headers" | grep -iF "x-content-type-options: nosniff"
+          printf '%s\n' "$headers" | grep -iF "referrer-policy: strict-origin-when-cross-origin"
+          printf '%s\n' "$headers" | grep -iF "permissions-policy: camera=(), geolocation=(), microphone=()"
+          printf '%s\n' "$headers" | grep -iF "x-frame-options: DENY"
 
       - name: Verify asset cache policy
         run: |
           html_file="$(mktemp)"
-          curl -fsSL "${{ inputs.target_url }}" -o "$html_file"
-          asset_path="$(grep -oE '/assets/[^"'"'" ]+\.js' "$html_file" | head -n 1)"
+          curl -fsSL "${{ steps.target.outputs.url }}" -o "$html_file"
+          asset_path="$(grep -oE '([^"'"'" ]*/)?assets/[^"'"'" ]+\.js' "$html_file" | head -n 1)"
           test -n "$asset_path"
-          asset_headers="$(curl -fsSI "${{ inputs.target_url }}${asset_path}")"
-          printf '%s\n' "$asset_headers" | grep -F "cache-control: public, max-age=31536000, immutable"
+          asset_url="$(ASSET_PATH="$asset_path" BASE_URL="${{ steps.target.outputs.url }}" node -e "console.log(new URL(process.env.ASSET_PATH, process.env.BASE_URL).href)")"
+          asset_headers="$(curl -fsSI "$asset_url")"
+          printf '%s\n' "$asset_headers" | grep -iF "cache-control: public, max-age=31536000, immutable"
           printf '%s\n' "$asset_headers" | grep -Ei "content-type: (application|text)/javascript"
 
       - name: Verify favicon cache policy
         run: |
-          favicon_headers="$(curl -fsSI "${{ inputs.target_url }}/favicon.svg")"
-          printf '%s\n' "$favicon_headers" | grep -F "cache-control: public, max-age=604800, stale-while-revalidate=86400"
+          favicon_url="$(BASE_URL="${{ steps.target.outputs.url }}" node -e "console.log(new URL('favicon.svg', process.env.BASE_URL).href)")"
+          favicon_headers="$(curl -fsSI "$favicon_url")"
+          printf '%s\n' "$favicon_headers" | grep -iF "cache-control: public, max-age=604800, stale-while-revalidate=86400"
