@@ -1,14 +1,49 @@
+import groovy.json.JsonSlurper
+import java.util.Properties
+
 apply plugin: 'com.android.application'
+
+def productionProperties = new Properties()
+def productionPropertiesFile = rootProject.file('keystore.properties')
+if (productionPropertiesFile.exists()) {
+    productionPropertiesFile.withInputStream { productionProperties.load(it) }
+}
+
+def productionValue = { name ->
+    productionProperties.getProperty(name) ?: project.findProperty(name)?.toString() ?: System.getenv(name)
+}
+
+def packageJson = new JsonSlurper().parse(rootProject.file('../package.json'))
+
+def androidReleaseSigningKeys = [
+    'ANDROID_KEYSTORE_PATH',
+    'ANDROID_KEYSTORE_PASSWORD',
+    'ANDROID_KEY_ALIAS',
+    'ANDROID_KEY_PASSWORD'
+]
+def hasAndroidReleaseSigning = androidReleaseSigningKeys.every { productionValue(it) }
+def androidVersionCode = (productionValue('ANDROID_VERSION_CODE') ?: '1').toInteger()
+def androidVersionName = productionValue('ANDROID_VERSION_NAME') ?: packageJson.version.toString()
 
 android {
     namespace = "com.dailylexicon.app"
     compileSdk = rootProject.ext.compileSdkVersion
+    signingConfigs {
+        release {
+            if (hasAndroidReleaseSigning) {
+                storeFile rootProject.file(productionValue('ANDROID_KEYSTORE_PATH'))
+                storePassword productionValue('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias productionValue('ANDROID_KEY_ALIAS')
+                keyPassword productionValue('ANDROID_KEY_PASSWORD')
+            }
+        }
+    }
     defaultConfig {
         applicationId "com.dailylexicon.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode androidVersionCode
+        versionName androidVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -18,9 +53,20 @@ android {
     }
     buildTypes {
         release {
+            if (hasAndroidReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
+    }
+}
+
+gradle.taskGraph.whenReady { taskGraph ->
+    def releaseBuildRequested = taskGraph.allTasks.any { it.path == ':app:bundleRelease' || it.path == ':app:assembleRelease' }
+    if (releaseBuildRequested && !hasAndroidReleaseSigning) {
+        def missing = androidReleaseSigningKeys.findAll { !productionValue(it) }.join(', ')
+        throw new GradleException("Missing Android release signing config: ${missing}. Set these as environment variables or in android/keystore.properties.")
     }
 }
 
