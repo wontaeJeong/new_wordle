@@ -12,7 +12,7 @@ Daily Lexicon is a production-oriented Wordle-style daily word game built with R
 
 ## Local development
 
-Use npm and Node 20+.
+Use npm and Node 22+.
 
 ```bash
 npm install
@@ -34,6 +34,10 @@ Open the local Vite URL shown in the terminal.
 - `npm run check:bundle` - enforce the production asset-size budget after a build
 - `npm run lint` - run ESLint
 - `npm run typecheck` - run TypeScript type checking
+- `npm run verify` - run lint, typecheck, tests, production build, bundle budget, and Chromium smoke checks
+- `npm run native:sync` - build the web app and sync assets into all Capacitor native projects
+- `npm run native:build:android` - build the Android debug APK
+- `npm run native:build:ios` - build the iOS simulator debug app with Xcode
 
 ## Architecture summary
 
@@ -47,7 +51,7 @@ The codebase is split into small, explicit modules so gameplay rules stay pure a
 - `src/game/stats.ts` - streak and distribution updates
 - `src/game/share.ts` - spoiler-free emoji share text
 - `src/hooks/useWordGame.ts` - thin app state orchestration around the pure modules
-- `src/config/*` - runtime config and typed feature flags
+- `src/config/appConfig.ts` - runtime config
 - `src/lib/*` - logger, analytics, clipboard fallback, global error handling, error reporting adapter
 
 ## Gameplay rules
@@ -93,16 +97,17 @@ Corrupt JSON safely resets the stored snapshot. Parseable but malformed state, s
 
 ## Configuration and env vars
 
-Runtime/build configuration is centralized in `src/config/appConfig.ts`. Feature flags live in `src/config/flags.ts`.
+Runtime/build configuration is centralized in `src/config/appConfig.ts`.
 
 Environment variables:
 
 - `VITE_APP_TITLE` - UI title text
 - `VITE_BASE_PATH` - optional Vite base path for subpath deployments such as GitHub Pages
 - `VITE_PUZZLE_EPOCH` - optional `YYYY-MM-DD` daily epoch override
-- `VITE_ENABLE_ANALYTICS` - enables the analytics adapter interface; default `false`
-- `VITE_ENABLE_ERROR_REPORTING` - enables the error-reporting adapter interface; default `false`
-- `VITE_FEATURE_PRACTICE_MODE` - reserved feature flag, off by default
+- `VITE_ENABLE_ANALYTICS` - enables HTTP analytics delivery; default `false`
+- `VITE_ANALYTICS_ENDPOINT` - same-origin path or HTTPS URL required when analytics is enabled
+- `VITE_ENABLE_ERROR_REPORTING` - enables HTTP error report delivery; default `false`
+- `VITE_ERROR_REPORTING_ENDPOINT` - same-origin path or HTTPS URL required when error reporting is enabled
 - `VITE_BUILD_ID` - optional build identifier shown in Settings
 
 See `.env.example` for defaults.
@@ -120,9 +125,9 @@ The project includes:
 
 CI runs install, lint, typecheck, tests, build, a bundle-budget check, and a Chromium Playwright smoke pass on every push and pull request.
 
-A separate manual GitHub Actions workflow (`Post-deploy verify`) can run the same browser smoke suite plus header/cache checks against a live deployment URL.
+A separate manual GitHub Actions workflow (`Post-deploy verify`) can run the same browser smoke suite plus header/cache checks against a live deployment URL on hosts that support custom response headers.
 
-GitHub Pages deployment is available through `.github/workflows/deploy-pages.yml`; it computes a repository-aware Vite base path automatically and deploys the `dist/` artifact to the Pages environment.
+GitHub Pages deployment is available through `.github/workflows/deploy-pages.yml`; it computes a repository-aware Vite base path automatically, deploys the `dist/` artifact to the Pages environment, and runs a browser smoke check. Use Netlify, Vercel, Nginx, or a CDN/proxy that supports custom headers for the full production security-header policy.
 
 ## Deployment guidance
 
@@ -133,6 +138,20 @@ npm run build
 ```
 
 Deploy the generated `dist/` directory.
+
+## Native app builds
+
+Native Android and iOS projects are provided through Capacitor. The shared web bundle is still produced by Vite in `dist/` with a root base path for native packaging, then copied into `android/` and `ios/` during Capacitor sync.
+
+```bash
+npm run native:sync
+npm run native:build:android
+npm run native:build:ios
+```
+
+Android builds require a JDK and Android SDK with API 36 installed. The debug APK is generated at `android/app/build/outputs/apk/debug/app-debug.apk`.
+
+iOS builds require full Xcode selected with `xcode-select`, not only the Command Line Tools. The generated Xcode project is `ios/App/App.xcodeproj`.
 
 Included hosting artifacts:
 
@@ -160,18 +179,18 @@ The app avoids `dangerouslySetInnerHTML`, does not eval code, and does not store
 - `logger.ts` reduces noise in production
 - `ErrorBoundary.tsx` prevents blank-screen failures
 - global error listeners capture uncaught errors and rejections
-- analytics and error reporting are behind thin adapters and remain non-blocking noop implementations unless enabled/configured
-- analytics and error reporting stay vendor-neutral and disabled by default; production verification focuses on their current contract rather than a specific SDK
+- analytics and error reporting are vendor-neutral HTTP adapters, disabled by default, and non-blocking when configured
+- telemetry endpoints may be same-origin paths or HTTPS URLs; update `connect-src` if using an external telemetry host
 - clipboard sharing falls back safely when the Clipboard API is unavailable
 - localStorage write failures degrade safely without crashing the app
 
 ## Performance note
 
-The dependency set is intentionally small. The only runtime dependencies are React and React DOM. All other tooling is build/test-only. The production bundle stays small because there is no UI kit, no state library, and no backend SDK.
+The dependency set is intentionally small. The web runtime dependencies are React and React DOM, with Capacitor dependencies providing the native Android/iOS shell. All other tooling is build/test-only. The production bundle stays small because there is no UI kit, no state library, and no backend SDK.
 
 ## Privacy note
 
-Gameplay state stays on-device in localStorage. There is no auth, no account system, and no cookie requirement. Optional analytics is off by default.
+Gameplay state stays on-device in localStorage. There is no auth, no account system, and no cookie requirement. Optional analytics and error reporting are off by default and send only app event/error metadata when explicitly configured.
 
 ## Troubleshooting
 
@@ -183,4 +202,4 @@ Gameplay state stays on-device in localStorage. There is no auth, no account sys
 
 ## Version metadata
 
-The settings dialog shows `package.json` version plus `VITE_BUILD_ID` (or `local-dev` when not provided). This is intended for operational debugging and user issue reports.
+The settings dialog shows `package.json` version plus `VITE_BUILD_ID` (or CI/deployment commit metadata when available). This is intended for operational debugging and user issue reports.

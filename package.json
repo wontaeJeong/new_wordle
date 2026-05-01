@@ -1,10 +1,10 @@
 {
   "name": "daily-lexicon",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "dev": "vite",
@@ -19,23 +19,33 @@
     "test:e2e:headed": "playwright test e2e/smoke.spec.ts --project=chromium --headed",
     "check:bundle": "node ./scripts/check-bundle-size.mjs",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.e2e.json"
+    "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.e2e.json",
+    "verify": "npm run lint && npm run typecheck && npm run test:run && npm run build && npm run check:bundle && npm run test:e2e:smoke",
+    "native:sync": "VITE_BASE_PATH=/ npm run build && cap sync",
+    "native:sync:android": "VITE_BASE_PATH=/ npm run build && cap sync android",
+    "native:sync:ios": "VITE_BASE_PATH=/ npm run build && cap sync ios",
+    "native:build:android": "VITE_BASE_PATH=/ npm run build && cap sync android && cd android && ./gradlew assembleDebug",
+    "native:build:ios": "VITE_BASE_PATH=/ npm run build && cap sync ios && xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug -sdk iphonesimulator -derivedDataPath ios/App/build CODE_SIGNING_ALLOWED=NO build"
   },
   "dependencies": {
+    "@capacitor/android": "^8.3.1",
+    "@capacitor/core": "^8.3.1",
+    "@capacitor/ios": "^8.3.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@testing-library/jest-dom": "^6.6.3",
+    "@capacitor/cli": "^8.3.1",
+    "@eslint/js": "^9.13.0",
+    "@playwright/test": "^1.54.2",
     "@testing-library/dom": "^10.4.0",
+    "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.2.0",
     "@testing-library/user-event": "^14.6.1",
     "@types/node": "^24.3.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
-    "@eslint/js": "^9.13.0",
-    "@playwright/test": "^1.54.2",
     "eslint": "^9.13.0",
     "eslint-plugin-react-hooks": "^5.1.0",
     "eslint-plugin-react-refresh": "^0.4.13",

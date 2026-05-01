@@ -4,11 +4,20 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 import tseslint from 'typescript-eslint';
 
-export default tseslint.config(
-  { ignores: ['dist', 'coverage', 'playwright-report', 'test-results'] },
+const sourceFiles = ['src/**/*.{ts,tsx}'];
+const e2eFiles = ['e2e/**/*.ts'];
+const nodeConfigFiles = ['vite.config.ts', 'playwright.config.ts', 'capacitor.config.ts'];
+
+const recommendedConfigsFor = (files) => [
+  { ...js.configs.recommended, files },
+  ...tseslint.configs.recommended.map((config) => ({ ...config, files })),
+];
+
+export default [
+  { ignores: ['dist', 'coverage', 'playwright-report', 'test-results', 'android', 'ios'] },
+  ...recommendedConfigsFor(sourceFiles),
   {
-    extends: [js.configs.recommended, ...tseslint.configs.recommended],
-    files: ['src/**/*.{ts,tsx}'],
+    files: sourceFiles,
     languageOptions: {
       ecmaVersion: 2020,
       globals: globals.browser,
@@ -26,9 +35,9 @@ export default tseslint.config(
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
     },
   },
+  ...recommendedConfigsFor(e2eFiles),
   {
-    extends: [js.configs.recommended, ...tseslint.configs.recommended],
-    files: ['e2e/**/*.ts'],
+    files: e2eFiles,
     languageOptions: {
       ecmaVersion: 2020,
       globals: globals.node,
@@ -38,9 +47,9 @@ export default tseslint.config(
       },
     },
   },
+  ...recommendedConfigsFor(nodeConfigFiles),
   {
-    extends: [js.configs.recommended, ...tseslint.configs.recommended],
-    files: ['vite.config.ts', 'playwright.config.ts'],
+    files: nodeConfigFiles,
     languageOptions: {
       ecmaVersion: 2020,
       globals: globals.node,
@@ -50,4 +59,4 @@ export default tseslint.config(
       },
     },
   },
-);
+];
