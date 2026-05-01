@@ -8,12 +8,16 @@ function isGameStatus(value: unknown): value is PersistedGameState['status'] {
   return value === 'in_progress' || value === 'won' || value === 'lost';
 }
 
+function isPartialGuess(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= WORD_LENGTH && /^[a-z]*$/i.test(value);
+}
+
+function isSubmittedGuess(value: unknown): value is string {
+  return typeof value === 'string' && value.length === WORD_LENGTH && /^[a-z]+$/i.test(value);
+}
+
 function isGuessList(value: unknown): value is string[] {
-  return (
-    Array.isArray(value) &&
-    value.length <= MAX_GUESSES &&
-    value.every((item) => typeof item === 'string' && item.length === WORD_LENGTH)
-  );
+  return Array.isArray(value) && value.length <= MAX_GUESSES && value.every(isSubmittedGuess);
 }
 
 function isGuessDistribution(value: unknown): value is StatsState['guessDistribution'] {
@@ -87,7 +91,7 @@ export function readStoredState(date: Date = new Date()): GameSnapshot {
       parsed.version === STORAGE_VERSION &&
       parsed.answerSetVersion === ANSWER_SET_VERSION &&
       isGuessList(parsed.guesses) &&
-      typeof parsed.currentGuess === 'string' &&
+      isPartialGuess(parsed.currentGuess) &&
       isGameStatus(parsed.status);
 
     if (!hasValidCore) {
@@ -99,7 +103,7 @@ export function readStoredState(date: Date = new Date()): GameSnapshot {
     }
 
     const guesses = isGuessList(parsed.guesses) ? parsed.guesses : [];
-    const currentGuess = typeof parsed.currentGuess === 'string' && parsed.currentGuess.length <= WORD_LENGTH ? parsed.currentGuess : '';
+    const currentGuess = isPartialGuess(parsed.currentGuess) ? parsed.currentGuess : '';
     const status = isGameStatus(parsed.status) ? parsed.status : 'in_progress';
 
     return {

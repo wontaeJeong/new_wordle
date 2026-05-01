@@ -108,6 +108,36 @@ describe('storage restore and reset', () => {
     expect(state.stats.gamesPlayed).toBe(0);
   });
 
+  it('rejects stored guesses with non-letter characters', () => {
+    const date = new Date(2026, 3, 20, 12, 0);
+    const puzzle = getDailyPuzzle(date);
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        version: STORAGE_VERSION,
+        answerSetVersion: ANSWER_SET_VERSION,
+        puzzleId: puzzle.id,
+        guesses: ['abc12'],
+        currentGuess: 'a!',
+        status: 'in_progress',
+        settings: { darkMode: false, highContrast: false, hardMode: false, reduceMotion: false },
+        stats: {
+          gamesPlayed: 2,
+          wins: 1,
+          currentStreak: 1,
+          maxStreak: 1,
+          guessDistribution: { 1: 0, 2: 1, 3: 0, 4: 0, 5: 0, 6: 0 },
+          lastCompletedPuzzleId: '2026-04-19',
+        },
+      }),
+    );
+
+    const state = readStoredState(date);
+    expect(state.guesses).toEqual([]);
+    expect(state.currentGuess).toBe('');
+    expect(state.stats.gamesPlayed).toBe(2);
+  });
+
   it('survives storage write failures', () => {
     const snapshot = readStoredState(new Date(2026, 3, 20, 12, 0));
     const setItem = vi.spyOn(window.localStorage, 'setItem').mockImplementation(() => {
