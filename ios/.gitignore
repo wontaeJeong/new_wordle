@@ -10,6 +10,7 @@ xcuserdata
 *.mobileprovision
 *.p12
 *.cer
+*.p8
 *.xcuserstate
 
 # Cordova plugins for Capacitor
