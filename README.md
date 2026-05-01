@@ -38,6 +38,9 @@ Open the local Vite URL shown in the terminal.
 - `npm run native:sync` - build the web app and sync assets into all Capacitor native projects
 - `npm run native:build:android` - build the Android debug APK
 - `npm run native:build:ios` - build the iOS simulator debug app with Xcode
+- `npm run native:build:android:release` - build the signed Android release AAB for Google Play
+- `npm run native:build:android:release:apk` - build the signed Android release APK for local distribution checks
+- `npm run native:build:ios:release` - archive and export the signed iOS release IPA
 
 ## Architecture summary
 
@@ -143,6 +146,8 @@ Deploy the generated `dist/` directory.
 
 Native Android and iOS projects are provided through Capacitor. The shared web bundle is still produced by Vite in `dist/` with a root base path for native packaging, then copied into `android/` and `ios/` during Capacitor sync.
 
+Debug builds:
+
 ```bash
 npm run native:sync
 npm run native:build:android
@@ -151,7 +156,42 @@ npm run native:build:ios
 
 Android builds require a JDK and Android SDK with API 36 installed. The debug APK is generated at `android/app/build/outputs/apk/debug/app-debug.apk`.
 
-iOS builds require full Xcode selected with `xcode-select`, not only the Command Line Tools. The generated Xcode project is `ios/App/App.xcodeproj`.
+Android production builds require an upload keystore. Keep the keystore and passwords out of Git. Either export the values in the shell/CI environment or copy `android/keystore.properties.example` to ignored `android/keystore.properties` and fill it locally.
+
+Required Android signing values:
+
+```bash
+export ANDROID_KEYSTORE_PATH=/absolute/path/to/upload-keystore.jks
+export ANDROID_KEYSTORE_PASSWORD=...
+export ANDROID_KEY_ALIAS=upload
+export ANDROID_KEY_PASSWORD=...
+```
+
+Optional Android version overrides are `ANDROID_VERSION_CODE` and `ANDROID_VERSION_NAME`. Build the Play Store bundle with:
+
+```bash
+npm run native:build:android:release
+```
+
+The release AAB is generated at `android/app/build/outputs/bundle/release/app-release.aab`. For local release APK checks, run `npm run native:build:android:release:apk`; the APK is generated at `android/app/build/outputs/apk/release/app-release.apk`.
+
+iOS builds require full Xcode selected with `xcode-select`, not only the Command Line Tools. iOS production archives also require Apple Developer signing configured in Xcode or available to `xcodebuild`.
+
+Required iOS signing value:
+
+```bash
+export IOS_DEVELOPMENT_TEAM=YOUR_TEAM_ID
+```
+
+Optional iOS overrides are `IOS_MARKETING_VERSION`, `IOS_BUILD_NUMBER`, and `IOS_EXPORT_OPTIONS_PLIST`. The committed `ios/ExportOptions.plist` defaults to App Store Connect export with automatic signing. Build and export the release IPA with:
+
+```bash
+npm run native:build:ios:release
+```
+
+The iOS archive is generated at `ios/App/build/App.xcarchive`, and the exported IPA appears under `ios/App/output/`.
+
+Do not commit Android keystores, `android/keystore.properties`, iOS provisioning profiles, certificates, `.p12`, `.p8`, or other signing credentials.
 
 Included hosting artifacts:
 
