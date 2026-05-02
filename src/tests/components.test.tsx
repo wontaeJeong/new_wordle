@@ -12,12 +12,15 @@ describe('Header', () => {
     const onOpenSettings = vi.fn();
 
     render(
-      <Header
-        title="Daily Lexicon"
-        onOpenHelp={onOpenHelp}
-        onOpenStats={onOpenStats}
-        onOpenSettings={onOpenSettings}
-      />,
+        <Header
+          title="Daily Lexicon"
+          username="player@example.com"
+          isLogoutPending={false}
+          onOpenHelp={onOpenHelp}
+          onOpenStats={onOpenStats}
+          onOpenSettings={onOpenSettings}
+          onLogout={vi.fn()}
+        />,
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Open help dialog' }));

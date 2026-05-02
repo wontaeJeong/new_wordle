@@ -50,6 +50,27 @@ function findHardModeScenario(answer: string) {
 }
 
 test.describe('Daily Lexicon smoke', () => {
+  async function mockAuthenticatedSession(page: import('@playwright/test').Page) {
+    const sessionBody = () => JSON.stringify({
+      user: { username: 'player@example.com' },
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    await page.route('**/api/auth/session', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: sessionBody() });
+    });
+    await page.route('**/api/auth/login', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: sessionBody() });
+    });
+    await page.route('**/api/auth/logout', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) });
+    });
+  }
+
+  test.beforeEach(async ({ page }) => {
+    await mockAuthenticatedSession(page);
+  });
+
   async function seedCompletedState(page: import('@playwright/test').Page, status: 'won' | 'lost') {
     await page.addInitScript(() => {
       Object.defineProperty(navigator, 'clipboard', {
@@ -68,6 +89,7 @@ test.describe('Daily Lexicon smoke', () => {
     });
 
     await page.goto('./');
+    await expect(page.getByRole('heading', { name: 'Daily Lexicon' })).toBeVisible();
 
     await page.evaluate((completedStatus) => {
       const raw = window.localStorage.getItem('daily-lexicon-state');
@@ -130,6 +152,41 @@ test.describe('Daily Lexicon smoke', () => {
     await page.reload();
   }
 
+  test('requires sign in before loading the game', async ({ page }) => {
+    let signedIn = false;
+
+    await page.unroute('**/api/auth/session');
+    await page.unroute('**/api/auth/login');
+    await page.route('**/api/auth/session', async (route) => {
+      await route.fulfill({
+        status: signedIn ? 200 : 401,
+        contentType: 'application/json',
+        body: signedIn
+          ? JSON.stringify({ user: { username: 'player@example.com' }, expiresAt: new Date(Date.now() + 60_000).toISOString() })
+          : JSON.stringify({ message: 'Authentication required.' }),
+      });
+    });
+    await page.route('**/api/auth/login', async (route) => {
+      const body = route.request().postDataJSON() as { username?: string; password?: string };
+      signedIn = body.username === 'player@example.com' && body.password === 'correct horse battery staple';
+      await route.fulfill({
+        status: signedIn ? 200 : 401,
+        contentType: 'application/json',
+        body: signedIn
+          ? JSON.stringify({ user: { username: 'player@example.com' }, expiresAt: new Date(Date.now() + 60_000).toISOString() })
+          : JSON.stringify({ message: 'Invalid username or password.' }),
+      });
+    });
+
+    await page.goto('./');
+    await expect(page.getByRole('heading', { name: 'Sign in to Daily Lexicon' })).toBeVisible();
+    await page.getByLabel('Username').fill('player@example.com');
+    await page.getByLabel('Password').fill('correct horse battery staple');
+    await page.getByRole('button', { name: 'Sign in' }).click();
+
+    await expect(page.getByRole('heading', { name: 'Daily Lexicon' })).toBeVisible();
+  });
+
   test('loads the app with production metadata and no console errors', async ({ page }) => {
     const consoleErrors: string[] = [];
     page.on('console', (message) => {
@@ -169,6 +226,7 @@ test.describe('Daily Lexicon smoke', () => {
 
   test('restores partially typed physical keyboard input after reload', async ({ page }) => {
     await page.goto('./');
+    await expect(page.getByRole('heading', { name: 'Daily Lexicon' })).toBeVisible();
 
     await page.evaluate(() => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'C', bubbles: true }));
@@ -293,6 +351,7 @@ test.describe('Daily Lexicon smoke', () => {
     const scenario = findHardModeScenario(puzzle.answer);
 
     await page.goto('./');
+    await expect(page.getByRole('heading', { name: 'Daily Lexicon' })).toBeVisible();
     await page.evaluate(({ seedGuess }) => {
       const raw = window.localStorage.getItem('daily-lexicon-state');
       if (!raw) {

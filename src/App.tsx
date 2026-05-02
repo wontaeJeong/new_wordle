@@ -9,10 +9,30 @@ import { Keyboard } from './components/Keyboard';
 import { SettingsDialog } from './components/SettingsDialog';
 import { StatsDialog } from './components/StatsDialog';
 import { Toast } from './components/Toast';
+import { LoginPanel } from './components/LoginPanel';
+import { useAuth } from './hooks/useAuth';
 import { useWordGame } from './hooks/useWordGame';
 import './App.css';
 
-function AppShell() {
+interface AuthenticatedGameProps {
+  username: string;
+  isLogoutPending: boolean;
+  onLogout: () => void;
+}
+
+function AuthLoading() {
+  return (
+    <main className="app-shell">
+      <section className="auth-card" aria-live="polite">
+        <p className="auth-eyebrow">Secure access</p>
+        <h1>Checking session</h1>
+        <p>Verifying your sign-in before loading the puzzle.</p>
+      </section>
+    </main>
+  );
+}
+
+function AuthenticatedGame({ username, isLogoutPending, onLogout }: AuthenticatedGameProps) {
   const game = useWordGame();
   const {
     addLetter,
@@ -99,9 +119,12 @@ function AppShell() {
       <div className="game-card">
         <Header
           title={appConfig.appTitle}
+          username={username}
+          isLogoutPending={isLogoutPending}
           onOpenHelp={() => openDialog('help')}
           onOpenStats={() => openDialog('stats')}
           onOpenSettings={() => openDialog('settings')}
+          onLogout={onLogout}
         />
         <Board
           guesses={guesses}
@@ -144,6 +167,37 @@ function AppShell() {
         />
       ) : null}
     </main>
+  );
+}
+
+function AppShell() {
+  const auth = useAuth();
+  const handleLogout = useCallback(() => {
+    void auth.logout();
+  }, [auth]);
+
+  if (auth.status === 'loading') {
+    return <AuthLoading />;
+  }
+
+  if (auth.status !== 'authenticated' || auth.user === null) {
+    return (
+      <LoginPanel
+        sessionError={auth.sessionError}
+        loginError={auth.loginError}
+        isPending={auth.isLoginPending}
+        onLogin={auth.login}
+        onRetrySession={auth.refreshSession}
+      />
+    );
+  }
+
+  return (
+    <AuthenticatedGame
+      username={auth.user.username}
+      isLogoutPending={auth.isLogoutPending}
+      onLogout={handleLogout}
+    />
   );
 }
 

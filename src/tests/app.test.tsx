@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../App';
 import { ALLOWED_GUESSES } from '../data/allowedGuesses';
 import { ANSWER_SET_VERSION } from '../data/answers';
@@ -9,6 +9,63 @@ import { getDailyPuzzle } from '../game/puzzle';
 import { validateHardModeGuess } from '../game/hardMode';
 
 const REVEAL_DURATION_MS = REVEAL_MS * WORD_LENGTH;
+const TEST_USER = 'player@example.com';
+
+function jsonResponse(status: number, body: unknown) {
+  return Promise.resolve(new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  }));
+}
+
+function getRequestUrl(input: RequestInfo | URL): string {
+  if (typeof input === 'string') {
+    return input;
+  }
+
+  if (input instanceof URL) {
+    return input.pathname;
+  }
+
+  return input.url;
+}
+
+function mockAuthenticatedSession() {
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const url = getRequestUrl(input);
+
+    if (url.endsWith('/api/auth/session')) {
+      return jsonResponse(200, {
+        user: { username: TEST_USER },
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      });
+    }
+
+    if (url.endsWith('/api/auth/logout')) {
+      return jsonResponse(200, { ok: true });
+    }
+
+    return jsonResponse(404, { message: `Unhandled auth test request: ${url}` });
+  });
+
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
+}
+
+async function renderAuthenticatedApp() {
+  const rendered = render(<App />);
+  await flushAuthPromises();
+  screen.getByRole('heading', { name: 'Daily Lexicon' });
+  return rendered;
+}
+
+async function flushAuthPromises() {
+  await act(async () => {
+    for (let count = 0; count < 5; count += 1) {
+      await Promise.resolve();
+    }
+  });
+}
 
 function pressKey(key: string) {
   fireEvent.keyDown(window, { key });
@@ -58,6 +115,7 @@ function findHardModeScenario(answer: string) {
 describe('App integration', () => {
   beforeEach(() => {
     window.localStorage.clear();
+    mockAuthenticatedSession();
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 3, 20, 12, 0));
     Object.defineProperty(window.navigator, 'clipboard', {
@@ -68,8 +126,48 @@ describe('App integration', () => {
     });
   });
 
-  it('supports typing letters and deleting them', () => {
-    const { container } = render(<App />);
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('requires login and signs in through the auth API', async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = getRequestUrl(input);
+
+      if (url.endsWith('/api/auth/session')) {
+        return jsonResponse(401, { message: 'Authentication required.' });
+      }
+
+      if (url.endsWith('/api/auth/login')) {
+        return jsonResponse(200, {
+          user: { username: TEST_USER },
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        });
+      }
+
+      return jsonResponse(404, { message: `Unhandled auth test request: ${url}` });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+    await flushAuthPromises();
+
+    expect(screen.getByRole('heading', { name: 'Sign in to Daily Lexicon' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Username'), { target: { value: TEST_USER } });
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'correct horse battery staple' } });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole('heading', { name: 'Daily Lexicon' })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith('/api/auth/login', expect.objectContaining({ credentials: 'include' }));
+  });
+
+  it('supports typing letters and deleting them', async () => {
+    const { container } = await renderAuthenticatedApp();
     const firstRow = container.querySelectorAll('.board-row')[0];
     const tiles = firstRow?.querySelectorAll('.tile');
 
@@ -82,8 +180,8 @@ describe('App integration', () => {
     expect(tiles?.[2].textContent).toBe('');
   });
 
-  it('submits a valid guess and keeps it on the board', () => {
-    const { container } = render(<App />);
+  it('submits a valid guess and keeps it on the board', async () => {
+    const { container } = await renderAuthenticatedApp();
 
     typeWord('CIGAR');
     pressKey('Enter');
@@ -95,8 +193,8 @@ describe('App integration', () => {
     expect(Array.from(firstRowTiles).map((tile) => tile.textContent).join('')).toBe('CIGAR');
   });
 
-  it('rejects invalid guesses without consuming a turn', () => {
-    render(<App />);
+  it('rejects invalid guesses without consuming a turn', async () => {
+    await renderAuthenticatedApp();
 
     typeWord('ZZZZZ');
     pressKey('Enter');
@@ -107,7 +205,7 @@ describe('App integration', () => {
 
   it('completes a win flow and allows sharing', async () => {
     const puzzle = getDailyPuzzle(new Date(2026, 3, 20, 12, 0));
-    render(<App />);
+    await renderAuthenticatedApp();
 
     typeWord(puzzle.answer);
     pressKey('Enter');
@@ -125,7 +223,7 @@ describe('App integration', () => {
 
   it('hides stats sharing until the reveal animation finishes', async () => {
     const puzzle = getDailyPuzzle(new Date(2026, 3, 20, 12, 0));
-    render(<App />);
+    await renderAuthenticatedApp();
 
     typeWord(puzzle.answer);
     pressKey('Enter');
@@ -144,9 +242,9 @@ describe('App integration', () => {
     expect(within(statsDialog).getByRole('button', { name: 'Share result' })).toBeInTheDocument();
   });
 
-  it('restores a completed game correctly when reloading during reveal', () => {
+  it('restores a completed game correctly when reloading during reveal', async () => {
     const puzzle = getDailyPuzzle(new Date(2026, 3, 20, 12, 0));
-    const { unmount } = render(<App />);
+    const { unmount } = await renderAuthenticatedApp();
 
     typeWord(puzzle.answer);
     pressKey('Enter');
@@ -155,17 +253,17 @@ describe('App integration', () => {
     expect(window.localStorage.getItem(STORAGE_KEY)).toContain('"status":"won"');
 
     unmount();
-    render(<App />);
+    await renderAuthenticatedApp();
 
     expect(screen.getByRole('heading', { name: 'Puzzle solved' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Share result' })).toBeInTheDocument();
   });
 
-  it('rolls over to a fresh daily puzzle when the date changes in the same session', () => {
+  it('rolls over to a fresh daily puzzle when the date changes in the same session', async () => {
     vi.setSystemTime(new Date(2026, 3, 20, 23, 59, 58, 500));
     const nextPuzzle = getDailyPuzzle(new Date(2026, 3, 21, 0, 0, 0, 0));
 
-    render(<App />);
+    await renderAuthenticatedApp();
     typeWord('CI');
     expect(screen.getByText('Turn 1 of 6. 2 of 5 letters entered.')).toBeInTheDocument();
 
@@ -179,11 +277,11 @@ describe('App integration', () => {
     expect(window.localStorage.getItem(STORAGE_KEY)).toContain('"status":"in_progress"');
   });
 
-  it('rolls over to a fresh daily puzzle when the app regains focus on a new day', () => {
+  it('rolls over to a fresh daily puzzle when the app regains focus on a new day', async () => {
     vi.setSystemTime(new Date(2026, 3, 20, 12, 0, 0, 0));
     const nextPuzzle = getDailyPuzzle(new Date(2026, 3, 21, 12, 0, 0, 0));
 
-    render(<App />);
+    await renderAuthenticatedApp();
     typeWord('CI');
     expect(screen.getByText('Turn 1 of 6. 2 of 5 letters entered.')).toBeInTheDocument();
 
@@ -197,11 +295,11 @@ describe('App integration', () => {
     expect(window.localStorage.getItem(STORAGE_KEY)).toContain('"currentGuess":""');
   });
 
-  it('rolls over to a fresh daily puzzle when the tab becomes visible on a new day', () => {
+  it('rolls over to a fresh daily puzzle when the tab becomes visible on a new day', async () => {
     vi.setSystemTime(new Date(2026, 3, 20, 12, 0, 0, 0));
     const nextPuzzle = getDailyPuzzle(new Date(2026, 3, 21, 12, 0, 0, 0));
 
-    render(<App />);
+    await renderAuthenticatedApp();
     typeWord('CI');
     expect(screen.getByText('Turn 1 of 6. 2 of 5 letters entered.')).toBeInTheDocument();
 
@@ -225,10 +323,10 @@ describe('App integration', () => {
     }
   });
 
-  it('completes a lose flow after six wrong guesses', () => {
+  it('completes a lose flow after six wrong guesses', async () => {
     const puzzle = getDailyPuzzle(new Date(2026, 3, 20, 12, 0));
     const wrongGuess = puzzle.answer === 'CIGAR' ? 'REBUT' : 'CIGAR';
-    render(<App />);
+    await renderAuthenticatedApp();
 
     for (let count = 0; count < 6; count += 1) {
       typeWord(wrongGuess);
@@ -241,7 +339,7 @@ describe('App integration', () => {
     expect(screen.getByText(`The answer was ${puzzle.answer}.`)).toBeInTheDocument();
   });
 
-  it('restores a saved game from localStorage', () => {
+  it('restores a saved game from localStorage', async () => {
     const puzzle = getDailyPuzzle(new Date(2026, 3, 20, 12, 0));
     window.localStorage.setItem(
       STORAGE_KEY,
@@ -264,14 +362,14 @@ describe('App integration', () => {
       }),
     );
 
-    const { container } = render(<App />);
+    const { container } = await renderAuthenticatedApp();
     expect(screen.getAllByText('C').length).toBeGreaterThan(0);
     const firstFutureRow = container.querySelectorAll('.board-row')[1];
     expect(within(firstFutureRow as HTMLElement).getAllByText('R').length).toBeGreaterThan(0);
   });
 
-  it('persists settings changes', () => {
-    render(<App />);
+  it('persists settings changes', async () => {
+    await renderAuthenticatedApp();
 
     fireEvent.click(screen.getByRole('button', { name: 'Open settings dialog' }));
     fireEvent.click(screen.getByRole('checkbox', { name: /Dark mode/i }));
@@ -280,27 +378,27 @@ describe('App integration', () => {
     expect(window.localStorage.getItem(STORAGE_KEY)).toContain('"darkMode":true');
   });
 
-  it('traps focus inside dialogs for keyboard users', () => {
-    render(<App />);
+  it('traps focus inside dialogs for keyboard users', async () => {
+    await renderAuthenticatedApp();
 
     fireEvent.click(screen.getByRole('button', { name: 'Open settings dialog' }));
     const closeButton = screen.getByRole('button', { name: 'Close Settings' });
     expect(closeButton).toHaveFocus();
   });
 
-  it('announces live board progress for assistive technology', () => {
-    render(<App />);
+  it('announces live board progress for assistive technology', async () => {
+    await renderAuthenticatedApp();
 
     expect(screen.getByText('Turn 1 of 6. 0 of 5 letters entered.')).toBeInTheDocument();
     typeWord('CI');
     expect(screen.getByText('Turn 1 of 6. 2 of 5 letters entered.')).toBeInTheDocument();
   });
 
-  it('enforces hard mode in the UI without consuming a turn', () => {
+  it('enforces hard mode in the UI without consuming a turn', async () => {
     const puzzle = getDailyPuzzle(new Date(2026, 3, 20, 12, 0));
     const scenario = findHardModeScenario(puzzle.answer);
 
-    render(<App />);
+    await renderAuthenticatedApp();
     fireEvent.click(screen.getByRole('button', { name: 'Open settings dialog' }));
     fireEvent.click(screen.getByRole('checkbox', { name: /Hard mode/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Close Settings' }));
@@ -330,7 +428,7 @@ describe('App integration', () => {
       value: vi.fn().mockReturnValue(false),
     });
 
-    render(<App />);
+    await renderAuthenticatedApp();
     typeWord(puzzle.answer);
     pressKey('Enter');
     act(() => {
