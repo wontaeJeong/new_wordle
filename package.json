@@ -10,6 +10,8 @@
     "dev": "vite",
     "build": "npm run typecheck && vite build",
     "preview": "vite preview",
+    "serve:auth": "node ./scripts/auth-server.mjs",
+    "auth:hash": "node ./scripts/hash-password.mjs",
     "preview:ci": "vite preview --host 127.0.0.1 --port 4173 --strictPort",
     "test": "vitest",
     "test:run": "vitest run",
