@@ -26,6 +26,8 @@ Open the local Vite URL shown in the terminal.
 - `npm run dev` - start the local dev server
 - `npm run build` - typecheck and create the production static build
 - `npm run preview` - serve the built app locally
+- `npm run serve:auth` - serve `dist/` with the same-origin login API
+- `npm run auth:hash` - generate a scrypt password hash for `AUTH_PASSWORD_HASH`
 - `npm run test` - run Vitest in watch mode
 - `npm run test:run` - run the full test suite once
 - `npm run test:e2e` - run the Playwright browser suite against a local preview server
@@ -113,9 +115,37 @@ Environment variables:
 - `VITE_ERROR_REPORTING_ENDPOINT` - same-origin path or HTTPS URL required when error reporting is enabled
 - `VITE_BUILD_ID` - optional build identifier shown in Settings
 
+Server-only login variables for `npm run serve:auth`:
+
+- `AUTH_USERNAME` - username accepted by the login API
+- `AUTH_PASSWORD_HASH` - scrypt hash generated with `npm run auth:hash`
+- `SESSION_SECRET` - at least 32 characters, used to sign HttpOnly session cookies
+- `AUTH_SESSION_TTL_SECONDS` - optional session lifetime; default `28800`
+- `AUTH_SECURE_COOKIES` - set `true` behind HTTPS; defaults to `true` when `NODE_ENV=production`
+- `AUTH_TRUST_PROXY` - optional; set `true` only when a trusted reverse proxy controls `X-Forwarded-For`
+
 See `.env.example` for defaults.
 
-Frontend env vars are not secrets. Do not place secrets in them.
+Frontend env vars are not secrets. Do not place secrets in `VITE_*` values.
+
+## Login design
+
+The app is protected by a same-origin login API. The browser never receives an auth token: successful login sets an HttpOnly, SameSite session cookie, `/api/auth/session` verifies it before the puzzle renders, and `/api/auth/logout` clears it. Failed login attempts are throttled per client and username.
+
+The bundled server supports one environment-configured account and serves the production `dist/` output:
+
+```bash
+AUTH_PASSWORD='choose-a-strong-password' npm run auth:hash
+npm run build
+AUTH_USERNAME=player@example.com \
+AUTH_PASSWORD_HASH='scrypt$...' \
+SESSION_SECRET='replace-with-a-long-random-secret' \
+NODE_ENV=production \
+AUTH_SECURE_COOKIES=true \
+npm run serve:auth
+```
+
+Run it behind HTTPS in production. For horizontally scaled deployments, move the in-memory session/rate-limit stores behind a shared store or equivalent platform middleware.
 
 ## Testing strategy
 
@@ -134,7 +164,7 @@ GitHub Pages deployment is available through `.github/workflows/deploy-pages.yml
 
 ## Deployment guidance
 
-The app is built as static assets and works with Vercel, Netlify, Cloudflare Pages, Nginx static hosting, or S3/CDN-style hosting.
+The UI is still built as static assets, but login requires a same-origin server or equivalent serverless endpoints for `/api/auth/*`.
 
 ```bash
 npm run build
@@ -212,7 +242,7 @@ Recommended static-host headers are included in the hosting examples:
 
 The host examples also separate cache policy between HTML entry points and hashed static assets so rollbacks stay safe without sacrificing asset caching.
 
-The app avoids `dangerouslySetInnerHTML`, does not eval code, and does not store secrets client-side.
+The app avoids `dangerouslySetInnerHTML`, does not eval code, and does not store secrets or auth tokens client-side.
 
 ## Observability and resilience
 
@@ -230,7 +260,7 @@ The dependency set is intentionally small. The web runtime dependencies are Reac
 
 ## Privacy note
 
-Gameplay state stays on-device in localStorage. There is no auth, no account system, and no cookie requirement. Optional analytics and error reporting are off by default and send only app event/error metadata when explicitly configured.
+Gameplay state stays on-device in localStorage. Login state is stored only in an HttpOnly server-issued cookie. Optional analytics and error reporting are off by default and send only app event/error metadata when explicitly configured.
 
 ## Troubleshooting
 
